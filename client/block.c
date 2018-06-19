@@ -119,7 +119,7 @@ static inline void accept_amount(struct block_internal *bi, xdag_amount_t sum)
 	}
 
 	bi->amount += sum;
-	if (bi->flags & BI_OURS) {
+	if (bi->flags & BI_OURS) { // if our block, adjust 
 		struct block_internal *ti;
 		g_balance += sum;
 
@@ -264,7 +264,7 @@ static void set_main(struct block_internal *m)
 	m->ref = m;
 	log_block((m->flags & BI_OURS ? "MAIN +" : "MAIN  "), m->hash, m->time, m->storage_pos);
 }
-
+// unset the main block, 
 static void unset_main(struct block_internal *m)
 {
 	g_xdag_stats.nmain--;
@@ -292,7 +292,7 @@ static void check_new_main(void)
 		set_main(p);
 	}
 }
-
+// remove current top main chain blocks flags till the specified block, if the block on this chain is main block, unset the main block.
 static void unwind_main(struct block_internal *b)
 {
 	for (struct block_internal *t = top_main_chain; t != b; t = t->link[t->max_diff_link]) {
@@ -305,7 +305,7 @@ static void unwind_main(struct block_internal *b)
 
 static inline void hash_for_signature(struct xdag_block b[2], const struct xdag_public_key *key, xdag_hash_t hash)
 {
-	memcpy((uint8_t*)(b + 1) + 1, (void*)((uintptr_t)key->pub & ~1l), sizeof(xdag_hash_t));
+	memcpy((uint8_t*)(b + 1) + 1, (void*)((uintptr_t)key->pub & ~1l), sizeof(xdag_hash_t)); //???? [ruix] hash(modified_block # key_prefix_byte # public_key)
 	
 	*(uint8_t*)(b + 1) = ((uintptr_t)key->pub & 1) | 0x02;
 	
@@ -361,7 +361,7 @@ static int valid_signature(const struct xdag_block *b, int signo_r, int keysLeng
 		log_block("Pretop", (b)->hash, (b)->time, (b)->storage_pos); \
 }
 
-/* checks and adds a new block to the storage
+/* checks and adds a new block to the rbtree & storage
  * returns:
  *		>0 = block was added
  *		0  = block exists
@@ -483,15 +483,15 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 	for (i = 1; i < XDAG_BLOCK_FIELDS; ++i) {
 		if (1 << i & (inmask | outmask)) {
 			blockRef = block_by_hash(newBlock->field[i].hash);
-			if (!blockRef) {
+			if (!blockRef) { // the ref block not existed in current tree.
 				err = 5;
 				goto end;
 			}
-			if (blockRef->time >= tmpNodeBlock.time) {
+			if (blockRef->time >= tmpNodeBlock.time) { // the ref block is newer than this block. It's invalid!
 				err = 6;
 				goto end;
 			}
-			if (tmpNodeBlock.nlinks >= MAX_LINKS) {
+			if (tmpNodeBlock.nlinks >= MAX_LINKS) { // the ref block number exceeds max links.
 				err = 7;
 				goto end;
 			}
@@ -499,7 +499,7 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 				if (newBlock->field[i].amount) {
 					struct xdag_block buf;
 					struct xdag_block *bref = xdag_storage_load(blockRef->hash, blockRef->time, blockRef->storage_pos, &buf);
-					if (!bref) {
+					if (!bref) { // the ref block not existed in storage files. If ref block in storage, then what??
 						err = 8;
 						goto end;
 					}
@@ -510,7 +510,7 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 							break;
 						}
 					}
-					if (j == XDAG_BLOCK_FIELDS) {
+					if (j == XDAG_BLOCK_FIELDS) { // the signature of the ref block is invalid.
 						err = 9;
 						goto end;
 					}
@@ -521,7 +521,7 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 				psum = &sum_out;
 			}
 
-			if (*psum + newBlock->field[i].amount < *psum) {
+			if (*psum + newBlock->field[i].amount < *psum) { // amount is invalid ???
 				err = 0xA;
 				goto end;
 			}
@@ -530,20 +530,20 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 			tmpNodeBlock.link[tmpNodeBlock.nlinks] = blockRef;
 			tmpNodeBlock.linkamount[tmpNodeBlock.nlinks] = newBlock->field[i].amount;
 
-			if (MAIN_TIME(blockRef->time) < MAIN_TIME(tmpNodeBlock.time)) {
+			if (MAIN_TIME(blockRef->time) < MAIN_TIME(tmpNodeBlock.time)) { // if ref block is in previous time frame of new added block, add up the new block diff and ref block diff
 				diff = xdag_diff_add(diff0, blockRef->difficulty);
 			} else {
 				diff = blockRef->difficulty;
 
-				while (blockRef && MAIN_TIME(blockRef->time) == MAIN_TIME(tmpNodeBlock.time)) {
+				while (blockRef && MAIN_TIME(blockRef->time) == MAIN_TIME(tmpNodeBlock.time)) { // try to find the max diff ref block in the same time frame of new added block.
 					blockRef = blockRef->link[blockRef->max_diff_link];
 				}
-				if (blockRef && xdag_diff_gt(xdag_diff_add(diff0, blockRef->difficulty), diff)) {
+				if (blockRef && xdag_diff_gt(xdag_diff_add(diff0, blockRef->difficulty), diff)) { // if the new block diff plus the found max diff is greater than ref block, add up the max diff
 					diff = xdag_diff_add(diff0, blockRef->difficulty);
 				}
 			}
 
-			if (xdag_diff_gt(diff, tmpNodeBlock.difficulty)) {
+			if (xdag_diff_gt(diff, tmpNodeBlock.difficulty)) { // if the sum diff is greater than new block diff, record the diff and max diff link
 				tmpNodeBlock.difficulty = diff;
 				tmpNodeBlock.max_diff_link = tmpNodeBlock.nlinks;
 			}
@@ -552,19 +552,19 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 		}
 	}
 
-	if (tmpNodeBlock.in_mask ? sum_in < sum_out : sum_out != newBlock->field[0].amount) {
+	if (tmpNodeBlock.in_mask ? sum_in < sum_out : sum_out != newBlock->field[0].amount) { // if has input, compare sun_in and sum_out, if only output means earning block, check the sum_out with amount
 		err = 0xB;
 		goto end;
 	}
 
 	struct block_internal *nodeBlock = xdag_malloc(sizeof(struct block_internal));
 
-	if (!nodeBlock) {
+	if (!nodeBlock) { // failed to allocate new internal block
 		err = 0xC; 
 		goto end;
 	}
 
-	if (!(transportHeader & (sizeof(struct xdag_block) - 1))) {
+	if (!(transportHeader & (sizeof(struct xdag_block) - 1))) { // ??? why not save in storage
 		tmpNodeBlock.storage_pos = transportHeader;
 	} else {
 		tmpNodeBlock.storage_pos = xdag_storage_save(newBlock);
@@ -578,43 +578,43 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 		g_xdag_stats.total_nblocks = g_xdag_stats.nblocks;
 	}
 	
-	set_pretop(nodeBlock);
-	set_pretop(top_main_chain);
+	set_pretop(nodeBlock); // set new block as pretop main block
+	set_pretop(top_main_chain); // set top_main_main as pretop main block
 	
-	if (xdag_diff_gt(tmpNodeBlock.difficulty, g_xdag_stats.difficulty)) {
+	if (xdag_diff_gt(tmpNodeBlock.difficulty, g_xdag_stats.difficulty)) { // if the diff of the choosen max diff link is greater than network diff
 		/* Only log this if we are NOT loading state */
 		if(g_xdag_state != XDAG_STATE_LOAD)
 			xdag_info("Diff  : %llx%016llx (+%llx%016llx)", xdag_diff_args(tmpNodeBlock.difficulty), xdag_diff_args(diff0));
 
-		for (blockRef = nodeBlock, blockRef0 = 0; blockRef && !(blockRef->flags & BI_MAIN_CHAIN); blockRef = blockRef->link[blockRef->max_diff_link]) {
-			if ((!blockRef->link[blockRef->max_diff_link] || xdag_diff_gt(blockRef->difficulty, blockRef->link[blockRef->max_diff_link]->difficulty))
-				&& (!blockRef0 || MAIN_TIME(blockRef0->time) > MAIN_TIME(blockRef->time))) {
+		for (blockRef = nodeBlock, blockRef0 = 0; blockRef && !(blockRef->flags & BI_MAIN_CHAIN); blockRef = blockRef->link[blockRef->max_diff_link]) { // choose main chain
+			if ((!blockRef->link[blockRef->max_diff_link] || xdag_diff_gt(blockRef->difficulty, blockRef->link[blockRef->max_diff_link]->difficulty)) // if max diff linked block of ref block is null, or diff of ref block is greater than diff of max diff linked block
+				&& (!blockRef0 || MAIN_TIME(blockRef0->time) > MAIN_TIME(blockRef->time))) { // and pre max diff linked block is in newer time frame than current max diff linked block, mark it as main chain block and move to next max diff linked block till find a main chain block
 				blockRef->flags |= BI_MAIN_CHAIN; 
 				blockRef0 = blockRef;
 			}
 		}
 
-		if (blockRef && blockRef0 && blockRef != blockRef0 && MAIN_TIME(blockRef->time) == MAIN_TIME(blockRef0->time)) {
+		if (blockRef && blockRef0 && blockRef != blockRef0 && MAIN_TIME(blockRef->time) == MAIN_TIME(blockRef0->time)) { // if the pre main chain block and current main chain block is in the same time frame, get the 
 			blockRef = blockRef->link[blockRef->max_diff_link];
 		}
 
-		unwind_main(blockRef);
-		top_main_chain = nodeBlock;
+		unwind_main(blockRef); // reset main chain from top_main_chain block
+		top_main_chain = nodeBlock; // set top_main_chain block to new add block
 		g_xdag_stats.difficulty = tmpNodeBlock.difficulty;
 
-		if (xdag_diff_gt(g_xdag_stats.difficulty, g_xdag_stats.max_difficulty)) {
+		if (xdag_diff_gt(g_xdag_stats.difficulty, g_xdag_stats.max_difficulty)) { // if current main chain diff greater than network max diff, set network max diff as current main chain diff
 			g_xdag_stats.max_difficulty = g_xdag_stats.difficulty;
 		}
 	}
 
-	if (tmpNodeBlock.flags & BI_OURS) {
+	if (tmpNodeBlock.flags & BI_OURS) { // if ours block, append it to our chain
 		nodeBlock->ourprev = ourlast;
 		*(ourlast ? &ourlast->ournext : &ourfirst) = nodeBlock;
 		ourlast = nodeBlock;
 	}
 
 	for (i = 0; i < tmpNodeBlock.nlinks; ++i) {
-		if (!(tmpNodeBlock.link[i]->flags & BI_REF)) {
+		if (!(tmpNodeBlock.link[i]->flags & BI_REF)) { // if not 
 			for (blockRef0 = 0, blockRef = noref_first; blockRef != tmpNodeBlock.link[i]; blockRef0 = blockRef, blockRef = blockRef->ref) {
 				;
 			}
@@ -627,7 +627,7 @@ static int add_block_nolock(struct xdag_block *newBlock, xdag_time_t limit)
 
 			blockRef->ref = 0;
 			tmpNodeBlock.link[i]->flags |= BI_REF;
-			g_xdag_extstats.nnoref--;
+			g_xdag_extstats.nnoref--; // orphan block number --
 		}
 
 		if (tmpNodeBlock.linkamount[i]) {
