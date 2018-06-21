@@ -419,7 +419,7 @@ static void *general_mining_thread(void *arg)
 	}
 
 	while(!g_stop_general_mining) {
-		xdag_create_block(0, 0, 0, 0, xdag_main_time() << 16 | 0xffff, NULL);
+		xdag_create_block(0, 0, 0, 0, xdag_main_time() << 16 | 0xffff, NULL); // delay the send time 64s
 	}
 
 	xdag_mess("Stopping general mining thread...");

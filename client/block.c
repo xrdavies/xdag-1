@@ -823,7 +823,7 @@ int xdag_create_block(struct xdag_field *fields, int inputsCount, int outputsCou
 		xdag_sign(defkey->key, signatureHash, block[0].field[i].data, block[0].field[i + 1].data);
 	}
 	
-	if (mining) {
+	if (mining) { // adjust task i think ???
 		uint64_t taskIndex = g_xdag_pool_task_index + 1;
 		struct xdag_pool_task *task = &g_xdag_pool_task[taskIndex & 1];
 		
